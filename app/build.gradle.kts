@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.room)
+    alias(libs.plugins.google.services)
     id("kotlin-parcelize")
 }
 
@@ -26,7 +27,7 @@ extensions.configure<ApplicationExtension> {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -34,6 +35,7 @@ extensions.configure<ApplicationExtension> {
         }
         
         buildConfigField("String", "GEMINI_KEY", "\"${localProperties.getProperty("GEMINI_KEY") ?: ""}\"")
+        buildConfigField("String", "WEB_CLIENT_ID", "\"${localProperties.getProperty("WEB_CLIENT_ID") ?: ""}\"")
     }
 
     buildTypes {
@@ -112,6 +114,13 @@ dependencies {
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.storage)
+    implementation(libs.firebase.common)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

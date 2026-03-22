@@ -18,6 +18,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +29,7 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.google.firebase.auth.FirebaseAuth
 import com.samidevstudio.moshimoshi.core.audio.AndroidAudioRecorder
 import com.samidevstudio.moshimoshi.core.audio.TtsManager
 import com.samidevstudio.moshimoshi.core.ai.GeminiService
@@ -62,8 +64,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MoshiMoshiTheme {
-                var isLoggedIn by remember { mutableStateOf(false) }
+                val auth = FirebaseAuth.getInstance()
+                var isLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
                 val backStack = rememberNavBackStack(if (isLoggedIn) Destination.ModelDesu else Destination.Login)
+
+                LaunchedEffect(auth) {
+                    auth.addAuthStateListener { firebaseAuth ->
+                        val user = firebaseAuth.currentUser
+                        if (user == null && isLoggedIn) {
+                            isLoggedIn = false
+                            backStack.clear()
+                            backStack.add(Destination.Login)
+                        }
+                    }
+                }
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -115,11 +129,15 @@ class MainActivity : ComponentActivity() {
                         entryProvider = { key ->
                             when (key) {
                                 is Destination.Login -> NavEntry(key as NavKey) {
-                                    LoginScreen(onLoginSuccess = {
-                                        isLoggedIn = true
-                                        backStack.clear()
-                                        backStack.add(Destination.ModelDesu)
-                                    })
+                                    LoginScreen(
+                                        webClientId = BuildConfig.WEB_CLIENT_ID,
+                                        versionName = BuildConfig.VERSION_NAME,
+                                        onLoginSuccess = {
+                                            isLoggedIn = true
+                                            backStack.clear()
+                                            backStack.add(Destination.ModelDesu)
+                                        }
+                                    )
                                 }
                                 is Destination.ModelDesu -> NavEntry(key as NavKey) {
                                     ConversationScreen(

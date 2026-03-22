@@ -8,17 +8,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,36 +42,73 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.firebase.auth.FirebaseAuth
 import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import com.samidevstudio.moshimoshi.core.audio.AndroidAudioRecorder
 import com.samidevstudio.moshimoshi.core.audio.TtsManager
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-class ConversationViewModel : ViewModel() {
-    var isRecording by mutableStateOf(false)
-    var isProcessing by mutableStateOf(false)
-    var responseText by mutableStateOf("")
+data class ConversationUiState(
+    val isRecording: Boolean = false,
+    val isProcessing: Boolean = false,
+    val responseText: String = ""
+)
+
+class ConversationViewModel(
+    private val savedStateHandle: SavedStateHandle
+) : ViewModel() {
+    
+    private val _uiState = MutableStateFlow(
+        ConversationUiState(
+            responseText = savedStateHandle["response_text"] ?: ""
+        )
+    )
+    val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
+
+    fun setRecording(isRecording: Boolean) {
+        _uiState.update { it.copy(isRecording = isRecording) }
+    }
+
+    fun setProcessing(isProcessing: Boolean) {
+        _uiState.update { it.copy(isProcessing = isProcessing) }
+    }
+
+    fun setResponseText(text: String) {
+        _uiState.update { it.copy(responseText = text) }
+        savedStateHandle["response_text"] = text
+    }
 
     fun reset(geminiService: GeminiService) {
         geminiService.resetConversation()
-        responseText = ""
-        isProcessing = false
-        isRecording = false
+        setResponseText("")
+        setProcessing(false)
+        setRecording(false)
     }
 }
 
 @Composable
 fun ConversationScreen(
-    viewModel: ConversationViewModel = viewModel(),
     recorder: AndroidAudioRecorder,
     geminiService: GeminiService,
-    ttsManager: TtsManager?
+    ttsManager: TtsManager?,
+    modifier: Modifier = Modifier,
+    viewModel: ConversationViewModel = viewModel()
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val auth = FirebaseAuth.getInstance()
+    val currentUser = auth.currentUser
+    
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var hasPermission by remember {
         mutableStateOf(
@@ -82,8 +122,8 @@ fun ConversationScreen(
             recorder.start(it)
             audioFile = it
         }
-        viewModel.isRecording = true
-        viewModel.responseText = ""
+        viewModel.setRecording(true)
+        viewModel.setResponseText("")
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -96,7 +136,29 @@ fun ConversationScreen(
         }
     )
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
+        // User Info Header
+        currentUser?.let { user ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Hello, ${user.displayName ?: user.email ?: "User"}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -104,9 +166,9 @@ fun ConversationScreen(
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (viewModel.isProcessing) {
+            if (uiState.isProcessing) {
                 CircularProgressIndicator()
-            } else if (viewModel.responseText.isNotEmpty()) {
+            } else if (uiState.responseText.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -115,7 +177,7 @@ fun ConversationScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = viewModel.responseText,
+                        text = uiState.responseText,
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
@@ -131,20 +193,20 @@ fun ConversationScreen(
         ) {
             IconButton(
                 onClick = {
-                    if (viewModel.isRecording) {
+                    if (uiState.isRecording) {
                         recorder.stop()
-                        viewModel.isRecording = false
+                        viewModel.setRecording(false)
 
                         audioFile?.let { file ->
-                            viewModel.isProcessing = true
+                            viewModel.setProcessing(true)
                             scope.launch {
                                 val result = try {
                                     geminiService.processAudio(file)
                                 } catch (e: Exception) {
                                     "Error: ${e.localizedMessage}"
                                 }
-                                viewModel.responseText = result ?: "No response from Gemini"
-                                viewModel.isProcessing = false
+                                viewModel.setResponseText(result ?: "No response from Gemini")
+                                viewModel.setProcessing(false)
                                 result?.let { ttsManager?.speak(it) }
                             }
                         }
@@ -159,20 +221,32 @@ fun ConversationScreen(
                 modifier = Modifier
                     .size(100.dp)
                     .clip(CircleShape)
-                    .background(if (viewModel.isRecording) Color.Red else MaterialTheme.colorScheme.primary)
+                    .background(if (uiState.isRecording) Color.Red else MaterialTheme.colorScheme.primary)
             ) {
                 Icon(
-                    imageVector = if (viewModel.isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                    imageVector = if (uiState.isRecording) Icons.Default.Stop else Icons.Default.Mic,
                     contentDescription = "Toggle Recording",
                     tint = Color.White,
                     modifier = Modifier.size(48.dp)
                 )
             }
 
-            if (!viewModel.isRecording) {
+            if (!uiState.isRecording) {
                 Spacer(modifier = Modifier.height(8.dp))
-                TextButton(onClick = { viewModel.reset(geminiService) }) {
-                    Text("Reset Conversation")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    TextButton(onClick = { viewModel.reset(geminiService) }) {
+                        Text("Reset Conversation")
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    TextButton(onClick = { 
+                        auth.signOut()
+                        // Note: Navigation would ideally be handled by a hoisted event
+                    }) {
+                        Text("Sign Out", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
