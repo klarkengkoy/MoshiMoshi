@@ -36,6 +36,7 @@ import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import com.samidevstudio.moshimoshi.core.ui.theme.MoshiMoshiTheme
 import com.samidevstudio.moshimoshi.feature.auth.LoginScreen
 import com.samidevstudio.moshimoshi.feature.conversation.ConversationScreen
+import com.samidevstudio.moshimoshi.feature.conversation.SettingsScreen
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -43,7 +44,7 @@ sealed class Destination : NavKey {
     @Serializable data object Login : Destination()
     @Serializable data object ModelDesu : Destination()
     @Serializable data object Model2 : Destination()
-    @Serializable data object Model3 : Destination()
+    @Serializable data object Settings : Destination()
 }
 
 class MainActivity : ComponentActivity() {
@@ -118,15 +119,15 @@ class MainActivity : ComponentActivity() {
                                     label = { Text("Model 2") }
                                 )
                                 NavigationBarItem(
-                                    selected = currentDestination is Destination.Model3,
+                                    selected = currentDestination is Destination.Settings,
                                     onClick = { 
-                                        if (currentDestination !is Destination.Model3) {
+                                        if (currentDestination !is Destination.Settings) {
                                             while (backStack.isNotEmpty()) backStack.removeLastOrNull()
-                                            backStack.add(Destination.Model3)
+                                            backStack.add(Destination.Settings)
                                         } 
                                     },
-                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Model 3") },
-                                    label = { Text("Model 3") }
+                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                                    label = { Text("Settings") }
                                 )
                             }
                         }
@@ -155,7 +156,9 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 is Destination.Model2 -> NavEntry(key as NavKey) { PlaceholderScreen("Model 2") }
-                                is Destination.Model3 -> NavEntry(key as NavKey) { PlaceholderScreen("Model 3") }
+                                is Destination.Settings -> NavEntry(key as NavKey) { 
+                                    SettingsScreen(versionName = BuildConfig.VERSION_NAME)
+                                }
                                 else -> error("Unknown route: $key")
                             }
                         }

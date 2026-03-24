@@ -50,6 +50,9 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.kotlinx.serialization.json)
     
+    // Coil for profile images
+    implementation(libs.coil.compose)
+
     // Firebase Auth
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)

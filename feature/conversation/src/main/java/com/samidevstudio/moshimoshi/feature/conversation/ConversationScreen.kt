@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import com.samidevstudio.moshimoshi.core.audio.AndroidAudioRecorder
@@ -310,11 +312,20 @@ fun ConversationScreen(
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
+                        if (currentUser?.photoUrl != null) {
+                            AsyncImage(
+                                model = currentUser.photoUrl,
+                                contentDescription = "Profile Picture",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -549,10 +560,6 @@ fun ConversationScreen(
                 ) {
                     TextButton(onClick = { viewModel.reset(geminiService) }) {
                         Text("Reset Conversation", color = MaterialTheme.colorScheme.primary)
-                    }
-                    Spacer(modifier = Modifier.width(24.dp))
-                    TextButton(onClick = { auth.signOut() }) {
-                        Text("Sign Out", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
                     }
                 }
             }
