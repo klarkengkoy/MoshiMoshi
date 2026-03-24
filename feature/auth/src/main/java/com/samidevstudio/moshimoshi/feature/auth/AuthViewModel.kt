@@ -22,7 +22,6 @@ import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -82,6 +81,20 @@ class AuthViewModel(
             } catch (e: Exception) {
                 Log.e("Auth", "Unexpected Error", e)
                 setError("An unexpected error occurred")
+            }
+        }
+    }
+
+    fun signInAnonymously() {
+        viewModelScope.launch {
+            _uiState.value = AuthUiState.Loading
+            clearError()
+            try {
+                FirebaseAuth.getInstance().signInAnonymously().await()
+                _uiState.value = AuthUiState.Success
+            } catch (e: Exception) {
+                Log.e("Auth", "Anonymous Sign-in Error", e)
+                setError("Guest access failed. Please try again.")
             }
         }
     }

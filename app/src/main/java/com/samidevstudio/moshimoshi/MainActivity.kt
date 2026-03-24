@@ -42,8 +42,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 sealed class Destination : NavKey {
     @Serializable data object Login : Destination()
-    @Serializable data object ModelDesu : Destination()
-    @Serializable data object Model2 : Destination()
+    @Serializable data object Practice : Destination()
+    @Serializable data object Live : Destination()
     @Serializable data object Settings : Destination()
 }
 
@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 var currentUser by remember { mutableStateOf(auth.currentUser) }
                 
                 val backStack = rememberNavBackStack(
-                    if (currentUser != null) Destination.ModelDesu else Destination.Login
+                    if (currentUser != null) Destination.Practice else Destination.Login
                 )
 
                 LaunchedEffect(Unit) {
@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                             if (newUser == null) {
                                 backStack.add(Destination.Login)
                             } else {
-                                backStack.add(Destination.ModelDesu)
+                                backStack.add(Destination.Practice)
                             }
                         }
                     }
@@ -97,26 +97,26 @@ class MainActivity : ComponentActivity() {
                             NavigationBar {
                                 val currentDestination = backStack.last()
                                 NavigationBarItem(
-                                    selected = currentDestination is Destination.ModelDesu,
+                                    selected = currentDestination is Destination.Practice,
                                     onClick = { 
-                                        if (currentDestination !is Destination.ModelDesu) {
+                                        if (currentDestination !is Destination.Practice) {
                                             while (backStack.isNotEmpty()) backStack.removeLastOrNull()
-                                            backStack.add(Destination.ModelDesu)
+                                            backStack.add(Destination.Practice)
                                         } 
                                     },
-                                    icon = { Icon(Icons.Default.Mic, contentDescription = "Desu") },
-                                    label = { Text("Desu") }
+                                    icon = { Icon(Icons.Default.Mic, contentDescription = "Practice") },
+                                    label = { Text("Practice") }
                                 )
                                 NavigationBarItem(
-                                    selected = currentDestination is Destination.Model2,
+                                    selected = currentDestination is Destination.Live,
                                     onClick = { 
-                                        if (currentDestination !is Destination.Model2) {
+                                        if (currentDestination !is Destination.Live) {
                                             while (backStack.isNotEmpty()) backStack.removeLastOrNull()
-                                            backStack.add(Destination.Model2)
+                                            backStack.add(Destination.Live)
                                         } 
                                     },
-                                    icon = { Icon(Icons.Default.SmartToy, contentDescription = "Model 2") },
-                                    label = { Text("Model 2") }
+                                    icon = { Icon(Icons.Default.SmartToy, contentDescription = "Live") },
+                                    label = { Text("Live") }
                                 )
                                 NavigationBarItem(
                                     selected = currentDestination is Destination.Settings,
@@ -148,14 +148,14 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                is Destination.ModelDesu -> NavEntry(key as NavKey) {
+                                is Destination.Practice -> NavEntry(key as NavKey) {
                                     ConversationScreen(
                                         recorder = recorder,
                                         geminiService = geminiService,
                                         ttsManager = ttsManager
                                     )
                                 }
-                                is Destination.Model2 -> NavEntry(key as NavKey) { PlaceholderScreen("Model 2") }
+                                is Destination.Live -> NavEntry(key as NavKey) { PlaceholderScreen("Live") }
                                 is Destination.Settings -> NavEntry(key as NavKey) { 
                                     SettingsScreen(versionName = BuildConfig.VERSION_NAME)
                                 }
