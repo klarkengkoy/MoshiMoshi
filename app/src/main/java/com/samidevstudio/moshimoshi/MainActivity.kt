@@ -64,17 +64,27 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MoshiMoshiTheme {
-                val auth = FirebaseAuth.getInstance()
-                var isLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
-                val backStack = rememberNavBackStack(if (isLoggedIn) Destination.ModelDesu else Destination.Login)
+                val auth = remember { FirebaseAuth.getInstance() }
+                var currentUser by remember { mutableStateOf(auth.currentUser) }
+                
+                val backStack = rememberNavBackStack(
+                    if (currentUser != null) Destination.ModelDesu else Destination.Login
+                )
 
-                LaunchedEffect(auth) {
+                LaunchedEffect(Unit) {
                     auth.addAuthStateListener { firebaseAuth ->
-                        val user = firebaseAuth.currentUser
-                        if (user == null && isLoggedIn) {
-                            isLoggedIn = false
-                            backStack.clear()
-                            backStack.add(Destination.Login)
+                        val newUser = firebaseAuth.currentUser
+                        if (newUser != currentUser) {
+                            currentUser = newUser
+                            // Reset backstack whenever the auth state changes
+                            while (backStack.isNotEmpty()) {
+                                backStack.removeLastOrNull()
+                            }
+                            if (newUser == null) {
+                                backStack.add(Destination.Login)
+                            } else {
+                                backStack.add(Destination.ModelDesu)
+                            }
                         }
                     }
                 }
@@ -82,14 +92,14 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        if (isLoggedIn) {
+                        if (currentUser != null && backStack.last() !is Destination.Login) {
                             NavigationBar {
                                 val currentDestination = backStack.last()
                                 NavigationBarItem(
                                     selected = currentDestination is Destination.ModelDesu,
                                     onClick = { 
                                         if (currentDestination !is Destination.ModelDesu) {
-                                            backStack.clear()
+                                            while (backStack.isNotEmpty()) backStack.removeLastOrNull()
                                             backStack.add(Destination.ModelDesu)
                                         } 
                                     },
@@ -100,7 +110,7 @@ class MainActivity : ComponentActivity() {
                                     selected = currentDestination is Destination.Model2,
                                     onClick = { 
                                         if (currentDestination !is Destination.Model2) {
-                                            backStack.clear()
+                                            while (backStack.isNotEmpty()) backStack.removeLastOrNull()
                                             backStack.add(Destination.Model2)
                                         } 
                                     },
@@ -111,7 +121,7 @@ class MainActivity : ComponentActivity() {
                                     selected = currentDestination is Destination.Model3,
                                     onClick = { 
                                         if (currentDestination !is Destination.Model3) {
-                                            backStack.clear()
+                                            while (backStack.isNotEmpty()) backStack.removeLastOrNull()
                                             backStack.add(Destination.Model3)
                                         } 
                                     },
@@ -125,7 +135,7 @@ class MainActivity : ComponentActivity() {
                     NavDisplay(
                         backStack = backStack,
                         modifier = Modifier.padding(innerPadding),
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
                         entryProvider = { key ->
                             when (key) {
                                 is Destination.Login -> NavEntry(key as NavKey) {
@@ -133,9 +143,7 @@ class MainActivity : ComponentActivity() {
                                         webClientId = BuildConfig.WEB_CLIENT_ID,
                                         versionName = BuildConfig.VERSION_NAME,
                                         onLoginSuccess = {
-                                            isLoggedIn = true
-                                            backStack.clear()
-                                            backStack.add(Destination.ModelDesu)
+                                            // Handled by AuthStateListener
                                         }
                                     )
                                 }
