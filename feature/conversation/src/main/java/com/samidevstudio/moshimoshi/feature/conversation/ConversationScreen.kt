@@ -1,7 +1,6 @@
 package com.samidevstudio.moshimoshi.feature.conversation
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -56,200 +55,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
-import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import com.google.firebase.auth.FirebaseAuth
-import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import com.samidevstudio.moshimoshi.core.audio.AndroidAudioRecorder
 import com.samidevstudio.moshimoshi.core.audio.TtsManager
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import com.samidevstudio.moshimoshi.core.data.repository.ChatRepository
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-data class ModelOption(
-    val name: String,
-    val id: String,
-    val rpd: Int
-)
-
-val availableModels = listOf(
-    ModelOption("Gemini 3.1 Flash Lite", "gemini-3.1-flash-lite-preview", 500),
-    ModelOption("Gemini 3 Flash", "gemini-3-flash-preview", 20),
-    ModelOption("Gemini 2.5 Flash", "gemini-2.5-flash", 20),
-    ModelOption("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite", 20)
-)
-
-data class ConversationUiState(
-    val isRecording: Boolean = false,
-    val isProcessing: Boolean = false,
-    val responseText: String = "",
-    val normalText: String = "",
-    val basicText: String = "",
-    val englishText: String = "",
-    val showBasic: Boolean = false,
-    val showEnglish: Boolean = false,
-    val currentModel: ModelOption = availableModels[0], // Set Gemini 3.1 Flash Lite as default
-    val isModelMenuExpanded: Boolean = false,
-    val disabledModels: Set<String> = emptySet()
-)
-
-class ConversationViewModel(
-    private val savedStateHandle: SavedStateHandle
-) : ViewModel() {
-    
-    private val _uiState = MutableStateFlow(
-        ConversationUiState(
-            responseText = savedStateHandle["response_text"] ?: ""
-        )
-    )
-    val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
-
-    init {
-        val savedText = savedStateHandle.get<String>("response_text")
-        if (!savedText.isNullOrEmpty()) {
-            parseAndSetResponse(savedText)
-        }
-    }
-
-    private fun getCurrentDateString(): String {
-        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    }
-
-    private fun checkResetDisabledModels(context: Context) {
-        val prefs = context.getSharedPreferences("model_limits", Context.MODE_PRIVATE)
-        val lastResetDate = prefs.getString("last_reset_date", "")
-        val currentDate = getCurrentDateString()
-
-        if (lastResetDate != currentDate) {
-            prefs.edit {
-                clear()
-                putString("last_reset_date", currentDate)
-            }
-            _uiState.update { it.copy(disabledModels = emptySet()) }
-        } else {
-            val disabled = prefs.getStringSet("disabled_models", emptySet()) ?: emptySet()
-            _uiState.update { it.copy(disabledModels = disabled) }
-        }
-    }
-
-    private fun disableModel(modelId: String, context: Context) {
-        val prefs = context.getSharedPreferences("model_limits", Context.MODE_PRIVATE)
-        val disabled = prefs.getStringSet("disabled_models", emptySet())?.toMutableSet() ?: mutableSetOf()
-        disabled.add(modelId)
-        prefs.edit { putStringSet("disabled_models", disabled) }
-        _uiState.update { it.copy(disabledModels = disabled) }
-    }
-
-    fun setRecording(isRecording: Boolean) {
-        _uiState.update { it.copy(isRecording = isRecording) }
-    }
-
-    fun setModelMenuExpanded(expanded: Boolean, context: Context) {
-        if (expanded) checkResetDisabledModels(context)
-        _uiState.update { it.copy(isModelMenuExpanded = expanded) }
-    }
-
-    fun selectModel(model: ModelOption, geminiService: GeminiService) {
-        if (_uiState.value.disabledModels.contains(model.id)) return
-        _uiState.update { it.copy(currentModel = model, isModelMenuExpanded = false) }
-        geminiService.updateModel(model.id)
-    }
-
-    fun parseAndSetResponse(rawText: String) {
-        val normal = rawText.substringAfter("START_NORMAL", "").substringBefore("END_NORMAL", "").trim()
-        val basic = rawText.substringAfter("START_BASIC", "").substringBefore("END_BASIC", "").trim()
-        val english = rawText.substringAfter("START_ENGLISH", "").substringBefore("END_ENGLISH", "").trim()
-        
-        _uiState.update { 
-            it.copy(
-                responseText = rawText,
-                normalText = normal.ifEmpty { rawText },
-                basicText = basic,
-                englishText = english
-            ) 
-        }
-        savedStateHandle["response_text"] = rawText
-    }
-
-    fun processAudioResult(file: File, geminiService: GeminiService, ttsManager: TtsManager?, context: Context) {
-        _uiState.update { it.copy(isProcessing = true) }
-        val currentModelId = _uiState.value.currentModel.id
-        
-        viewModelScope.launch {
-            try {
-                val result = geminiService.processAudio(file)
-                if (result != null) {
-                    parseAndSetResponse(result)
-                    val ttsText = result.substringAfter("START_NORMAL", "").substringBefore("END_NORMAL", "").trim()
-                    ttsManager?.speak(ttsText.ifEmpty { result })
-                }
-            } catch (e: Exception) {
-                val errorMsg = e.localizedMessage ?: ""
-                if (errorMsg.contains("429") || errorMsg.contains("limit", ignoreCase = true)) {
-                    disableModel(currentModelId, context)
-                    val nextModel = availableModels.find { !uiState.value.disabledModels.contains(it.id) }
-                    if (nextModel != null) {
-                        _uiState.update { it.copy(currentModel = nextModel) }
-                        geminiService.updateModel(nextModel.id)
-                        parseAndSetResponse("START_NORMAL\nLimit reached. I've switched to ${nextModel.name} for you!\nEND_NORMAL")
-                    } else {
-                        parseAndSetResponse("START_NORMAL\nAll models have reached their daily limits. Please try again tomorrow! 🌸\nEND_NORMAL")
-                    }
-                } else {
-                    parseAndSetResponse("Error: $errorMsg")
-                }
-            } finally {
-                _uiState.update { it.copy(isProcessing = false) }
-            }
-        }
-    }
-
-    fun toggleBasic() {
-        _uiState.update { it.copy(showBasic = !it.showBasic) }
-    }
-
-    fun toggleEnglish() {
-        _uiState.update { it.copy(showEnglish = !it.showEnglish) }
-    }
-
-    fun reset(geminiService: GeminiService) {
-        geminiService.resetConversation()
-        _uiState.update { 
-            ConversationUiState(currentModel = it.currentModel, disabledModels = it.disabledModels)
-        }
-        savedStateHandle["response_text"] = ""
-    }
-}
 
 @Composable
 fun ConversationScreen(
     recorder: AndroidAudioRecorder,
-    geminiService: GeminiService,
     ttsManager: TtsManager?,
+    chatRepository: ChatRepository,
     modifier: Modifier = Modifier,
-    viewModel: ConversationViewModel = viewModel()
+    viewModel: ConversationViewModel = viewModel(
+        factory = ConversationViewModel.provideFactory(chatRepository)
+    )
 ) {
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
-    val currentUser = auth.currentUser
-    
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var hasPermission by remember {
@@ -276,7 +104,6 @@ fun ConversationScreen(
                 audioFile = file
                 recorder.start(file)
                 viewModel.setRecording(true)
-                viewModel.parseAndSetResponse("")
             }
         }
     )
@@ -312,30 +139,21 @@ fun ConversationScreen(
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (currentUser?.photoUrl != null) {
-                            AsyncImage(
-                                model = currentUser.photoUrl,
-                                contentDescription = "Profile Picture",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = Color.White
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = Color.White
+                        )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Hello, ${currentUser?.displayName ?: "Friend"}! ✨",
+                            text = "MoshiMoshi Practice ✨",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Let's practice Japanese! 🌸",
+                            text = "Let's learn Japanese! 🌸",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -346,18 +164,18 @@ fun ConversationScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
-                                .clickable { viewModel.setModelMenuExpanded(true, context) }
+                                .clickable { viewModel.setModelMenuExpanded(true) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = uiState.currentModel.name,
+                                    text = uiState.currentModel?.name ?: "Loading...",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "RPD: ${uiState.currentModel.rpd}",
+                                    text = "RPD: ${uiState.currentModel?.rpd ?: 0}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -367,9 +185,9 @@ fun ConversationScreen(
                         
                         DropdownMenu(
                             expanded = uiState.isModelMenuExpanded,
-                            onDismissRequest = { viewModel.setModelMenuExpanded(false, context) }
+                            onDismissRequest = { viewModel.setModelMenuExpanded(false) }
                         ) {
-                            availableModels.forEach { model ->
+                            uiState.availableModels.forEach { model ->
                                 val isDisabled = uiState.disabledModels.contains(model.id)
                                 DropdownMenuItem(
                                     text = {
@@ -386,7 +204,7 @@ fun ConversationScreen(
                                         }
                                     },
                                     enabled = !isDisabled,
-                                    onClick = { viewModel.selectModel(model, geminiService) }
+                                    onClick = { viewModel.selectModel(model.id) }
                                 )
                             }
                         }
@@ -406,7 +224,7 @@ fun ConversationScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(strokeWidth = 6.dp, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("${uiState.currentModel.name} is thinking... ✨", style = MaterialTheme.typography.bodyMedium)
+                    Text("${uiState.currentModel?.name} is thinking... ✨", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
                 if (uiState.normalText.isNotEmpty()) {
@@ -425,9 +243,9 @@ fun ConversationScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Moshi-chan ✨",
+                                    text = "Moshi-chan",
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = Color.Gray,
                                     fontWeight = FontWeight.Bold
                                 )
                                 
@@ -436,14 +254,14 @@ fun ConversationScreen(
                                         Icon(
                                             imageVector = Icons.Outlined.Subtitles,
                                             contentDescription = "Show Basic",
-                                            tint = if (uiState.showBasic) MaterialTheme.colorScheme.primary else Color.LightGray
+                                            tint = if (uiState.showBasic) Color.Gray else Color.LightGray
                                         )
                                     }
                                     IconButton(onClick = { viewModel.toggleEnglish() }) {
                                         Icon(
                                             imageVector = Icons.Default.Translate,
                                             contentDescription = "Show English",
-                                            tint = if (uiState.showEnglish) MaterialTheme.colorScheme.primary else Color.LightGray
+                                            tint = if (uiState.showEnglish) Color.Gray else Color.LightGray
                                         )
                                     }
                                 }
@@ -471,7 +289,7 @@ fun ConversationScreen(
                                             lineHeight = 24.sp,
                                             fontSize = 16.sp
                                         ),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                        color = Color.Gray
                                     )
                                 }
                             }
@@ -519,7 +337,7 @@ fun ConversationScreen(
                         recorder.stop()
                         viewModel.setRecording(false)
                         audioFile?.let { file ->
-                            viewModel.processAudioResult(file, geminiService, ttsManager, context)
+                            viewModel.processAudioResult(file, ttsManager)
                         }
                     } else {
                         if (hasPermission) {
@@ -527,7 +345,6 @@ fun ConversationScreen(
                             audioFile = file
                             recorder.start(file)
                             viewModel.setRecording(true)
-                            viewModel.parseAndSetResponse("")
                         } else {
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
@@ -558,7 +375,7 @@ fun ConversationScreen(
                         .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    TextButton(onClick = { viewModel.reset(geminiService) }) {
+                    TextButton(onClick = { viewModel.reset() }) {
                         Text("Reset Conversation", color = MaterialTheme.colorScheme.primary)
                     }
                 }

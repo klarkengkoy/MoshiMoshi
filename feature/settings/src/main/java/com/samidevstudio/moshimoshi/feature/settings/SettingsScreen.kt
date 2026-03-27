@@ -1,4 +1,4 @@
-package com.samidevstudio.moshimoshi.feature.conversation
+package com.samidevstudio.moshimoshi.feature.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,12 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepository
 
 @Composable
 fun SettingsScreen(
     versionName: String,
+    authRepository: AuthRepository,
     modifier: Modifier = Modifier,
-    viewModel: SettingsViewModel = viewModel()
+    viewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.provideFactory(authRepository)
+    )
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val currentUser = uiState.currentUser

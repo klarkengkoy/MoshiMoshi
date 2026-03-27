@@ -30,13 +30,15 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.google.firebase.auth.FirebaseAuth
+import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import com.samidevstudio.moshimoshi.core.audio.AndroidAudioRecorder
 import com.samidevstudio.moshimoshi.core.audio.TtsManager
-import com.samidevstudio.moshimoshi.core.ai.GeminiService
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepositoryImpl
+import com.samidevstudio.moshimoshi.core.data.repository.ChatRepositoryImpl
 import com.samidevstudio.moshimoshi.core.ui.theme.MoshiMoshiTheme
-import com.samidevstudio.moshimoshi.feature.auth.LoginScreen
+import com.samidevstudio.moshimoshi.feature.auth.AuthScreen
 import com.samidevstudio.moshimoshi.feature.conversation.ConversationScreen
-import com.samidevstudio.moshimoshi.feature.conversation.SettingsScreen
+import com.samidevstudio.moshimoshi.feature.settings.SettingsScreen
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -52,9 +54,19 @@ class MainActivity : ComponentActivity() {
     private val recorder by lazy {
         AndroidAudioRecorder(applicationContext)
     }
-
-    private val geminiService = GeminiService(apiKey = BuildConfig.GEMINI_KEY)
     
+    private val geminiService by lazy {
+        GeminiService(apiKey = BuildConfig.GEMINI_KEY)
+    }
+
+    private val chatRepository by lazy {
+        ChatRepositoryImpl(applicationContext, geminiService)
+    }
+
+    private val authRepository by lazy {
+        AuthRepositoryImpl()
+    }
+
     private var ttsManager: TtsManager? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,10 +152,10 @@ class MainActivity : ComponentActivity() {
                         entryProvider = { key ->
                             when (key) {
                                 is Destination.Login -> NavEntry(key as NavKey) {
-                                    LoginScreen(
+                                    AuthScreen(
                                         webClientId = BuildConfig.WEB_CLIENT_ID,
                                         versionName = BuildConfig.VERSION_NAME,
-                                        onLoginSuccess = {
+                                        onAuthSuccess = {
                                             // Handled by AuthStateListener
                                         }
                                     )
@@ -151,13 +163,16 @@ class MainActivity : ComponentActivity() {
                                 is Destination.Practice -> NavEntry(key as NavKey) {
                                     ConversationScreen(
                                         recorder = recorder,
-                                        geminiService = geminiService,
-                                        ttsManager = ttsManager
+                                        ttsManager = ttsManager,
+                                        chatRepository = chatRepository
                                     )
                                 }
                                 is Destination.Live -> NavEntry(key as NavKey) { PlaceholderScreen("Live") }
                                 is Destination.Settings -> NavEntry(key as NavKey) { 
-                                    SettingsScreen(versionName = BuildConfig.VERSION_NAME)
+                                    SettingsScreen(
+                                        versionName = BuildConfig.VERSION_NAME,
+                                        authRepository = authRepository
+                                    )
                                 }
                                 else -> error("Unknown route: $key")
                             }

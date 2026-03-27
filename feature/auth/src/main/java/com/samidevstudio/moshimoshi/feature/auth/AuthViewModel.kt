@@ -16,14 +16,13 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.EmailAuthProvider
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepository
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 sealed interface AuthUiState {
     data object Idle : AuthUiState
@@ -33,7 +32,8 @@ sealed interface AuthUiState {
 }
 
 class AuthViewModel(
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val authRepository: AuthRepository = AuthRepositoryImpl()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AuthUiState>(
@@ -67,11 +67,16 @@ class AuthViewModel(
                     request = request
                 )
                 
-                val user = handleFirebaseSignIn(result)
-                if (user != null) {
-                    _uiState.value = AuthUiState.Success
+                val firebaseAuthCredential = mapToFirebaseCredential(result)
+                if (firebaseAuthCredential != null) {
+                    val user = authRepository.signInWithCredential(firebaseAuthCredential)
+                    if (user != null) {
+                        _uiState.value = AuthUiState.Success
+                    } else {
+                        setError("Sign-in Failed")
+                    }
                 } else {
-                    setError("Firebase Sign-in Failed")
+                    setError("Invalid Credentials")
                 }
             } catch (e: GetCredentialCancellationException) {
                 _uiState.value = AuthUiState.Idle
@@ -90,7 +95,7 @@ class AuthViewModel(
             _uiState.value = AuthUiState.Loading
             clearError()
             try {
-                FirebaseAuth.getInstance().signInAnonymously().await()
+                authRepository.signInAnonymously()
                 _uiState.value = AuthUiState.Success
             } catch (e: Exception) {
                 Log.e("Auth", "Anonymous Sign-in Error", e)
@@ -99,40 +104,25 @@ class AuthViewModel(
         }
     }
 
-    private suspend fun handleFirebaseSignIn(result: GetCredentialResponse): FirebaseUser? {
-        val auth = FirebaseAuth.getInstance()
+    private fun mapToFirebaseCredential(result: GetCredentialResponse): com.google.firebase.auth.AuthCredential? {
         val credential = result.credential
         
-        return try {
-            val firebaseAuthCredential = when (credential) {
-                is GoogleIdTokenCredential -> {
-                    GoogleAuthProvider.getCredential(credential.idToken, null)
-                }
-                is PasswordCredential -> {
-                    EmailAuthProvider.getCredential(credential.id, credential.password)
-                }
-                is CustomCredential -> {
-                    if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                        GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
-                    } else {
-                        Log.e("Auth", "Unexpected custom credential type: ${credential.type}")
-                        null
-                    }
-                }
-                else -> {
-                    Log.e("Auth", "Unexpected credential type: ${credential.type}")
+        return when (credential) {
+            is GoogleIdTokenCredential -> {
+                GoogleAuthProvider.getCredential(credential.idToken, null)
+            }
+            is PasswordCredential -> {
+                EmailAuthProvider.getCredential(credential.id, credential.password)
+            }
+            is CustomCredential -> {
+                if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
+                } else {
                     null
                 }
             }
-            
-            firebaseAuthCredential?.let {
-                val authResult = auth.signInWithCredential(it).await()
-                authResult.user
-            }
-        } catch (e: Exception) {
-            Log.e("Auth", "Firebase Auth Error: ${e.message}", e)
-            null
+            else -> null
         }
     }
 
@@ -151,6 +141,8 @@ class AuthViewModel(
     }
 
     fun signOut() {
-        FirebaseAuth.getInstance().signOut()
+        viewModelScope.launch {
+            authRepository.signOut()
+        }
     }
 }

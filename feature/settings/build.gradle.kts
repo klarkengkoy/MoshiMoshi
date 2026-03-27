@@ -1,10 +1,11 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
-    namespace = "com.samidevstudio.moshimoshi.feature.auth"
+    namespace = "com.samidevstudio.moshimoshi.feature.settings"
     compileSdk = 36
 
     defaultConfig {
@@ -44,15 +45,13 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    
-    // Credentials
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services.auth)
-    implementation(libs.googleid)
-    
-    // Firebase Auth
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.kotlinx.serialization.json)
+    
+    // Coil for profile images
+    implementation(libs.coil.compose)
+
+    // Firebase Auth (Transitive dependency from core:data, but kept if needed for specific types)
+    // Ideally we avoid direct dependency on Firebase here.
 }

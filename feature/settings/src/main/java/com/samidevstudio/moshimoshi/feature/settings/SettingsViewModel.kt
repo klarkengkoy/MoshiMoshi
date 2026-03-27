@@ -1,20 +1,25 @@
-package com.samidevstudio.moshimoshi.feature.conversation
+package com.samidevstudio.moshimoshi.feature.settings
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.userProfileChangeRequest
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.samidevstudio.moshimoshi.core.data.model.User
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepository
+import com.samidevstudio.moshimoshi.core.data.repository.AuthRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 data class SettingsUiState(
-    val currentUser: FirebaseUser? = null,
+    val currentUser: User? = null,
     val showEditNameDialog: Boolean = false,
     val showLogoutWarning: Boolean = false,
     val showDeleteDialog: Boolean = false,
@@ -22,18 +27,27 @@ data class SettingsUiState(
 )
 
 class SettingsViewModel(
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
-    private val auth = FirebaseAuth.getInstance()
-    private val _uiState = MutableStateFlow(SettingsUiState(currentUser = auth.currentUser))
+    private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    init {
+        authRepository.currentUser
+            .onEach { user ->
+                _uiState.update { it.copy(currentUser = user) }
+            }
+            .launchIn(viewModelScope)
+    }
+
     fun onEditNameClick() {
+        val currentName = uiState.value.currentUser?.displayName ?: ""
         _uiState.update { 
             it.copy(
                 showEditNameDialog = true, 
-                newName = it.currentUser?.displayName ?: ""
+                newName = currentName
             ) 
         }
     }
@@ -53,15 +67,11 @@ class SettingsViewModel(
     }
 
     fun saveName() {
-        val user = auth.currentUser
         val nameToSave = _uiState.value.newName
         viewModelScope.launch {
             try {
-                val profileUpdates = userProfileChangeRequest {
-                    displayName = nameToSave
-                }
-                user?.updateProfile(profileUpdates)?.await()
-                _uiState.update { it.copy(currentUser = auth.currentUser, showEditNameDialog = false) }
+                authRepository.updateDisplayName(nameToSave)
+                _uiState.update { it.copy(showEditNameDialog = false) }
             } catch (e: Exception) {
                 // Handle error
             }
@@ -69,11 +79,11 @@ class SettingsViewModel(
     }
 
     fun onSignOutClick() {
-        val user = auth.currentUser
+        val user = uiState.value.currentUser
         if (user?.isAnonymous == true) {
             _uiState.update { it.copy(showLogoutWarning = true) }
         } else {
-            auth.signOut()
+            confirmSignOut()
         }
     }
 
@@ -82,18 +92,28 @@ class SettingsViewModel(
     }
 
     fun confirmSignOut() {
-        auth.signOut()
-        dismissDialogs()
+        viewModelScope.launch {
+            authRepository.signOut()
+            dismissDialogs()
+        }
     }
 
     fun confirmDeleteAccount() {
         viewModelScope.launch {
             try {
-                auth.currentUser?.delete()?.await()
-                auth.signOut()
+                authRepository.deleteAccount()
                 dismissDialogs()
             } catch (e: Exception) {
-                // Handle error (e.g. requires recent login)
+                // Handle error
+            }
+        }
+    }
+
+    companion object {
+        fun provideFactory(authRepository: AuthRepository): ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                val savedStateHandle = createSavedStateHandle()
+                SettingsViewModel(savedStateHandle, authRepository)
             }
         }
     }

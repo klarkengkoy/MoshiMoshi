@@ -78,9 +78,11 @@ room {
 dependencies {
     implementation(project(":feature:conversation"))
     implementation(project(":feature:auth"))
+    implementation(project(":feature:settings"))
     implementation(project(":core:ai"))
     implementation(project(":core:audio"))
     implementation(project(":core:ui"))
+    implementation(project(":core:data"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

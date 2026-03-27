@@ -44,10 +44,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.samidevstudio.moshimoshi.core.ui.R
 
 @Composable
-fun LoginScreen(
+fun AuthScreen(
     webClientId: String,
     versionName: String,
-    onLoginSuccess: () -> Unit,
+    onAuthSuccess: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AuthViewModel = viewModel()
 ) {
@@ -56,7 +56,7 @@ fun LoginScreen(
 
     LaunchedEffect(uiState) {
         if (uiState is AuthUiState.Success) {
-            onLoginSuccess()
+            onAuthSuccess()
         }
     }
 
