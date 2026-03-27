@@ -30,6 +30,9 @@ class ChatRepositoryImpl(
     private val _disabledModels = MutableStateFlow<Set<String>>(emptySet())
     override val disabledModels: Flow<Set<String>> = _disabledModels.asStateFlow()
 
+    private val _currentLevel = MutableStateFlow("N5")
+    override val currentLevel: Flow<String> = _currentLevel.asStateFlow()
+
     init {
         checkResetDisabledModels()
     }
@@ -62,8 +65,17 @@ class ChatRepositoryImpl(
         geminiService.updateModel(modelId)
     }
 
+    override suspend fun selectLevel(level: String) {
+        _currentLevel.value = level
+        geminiService.updateLevel(level)
+    }
+
     override suspend fun processAudio(file: File): String? {
         return geminiService.processAudio(file)
+    }
+
+    override suspend fun processText(text: String): String? {
+        return geminiService.processText(text)
     }
 
     override suspend fun resetConversation() {

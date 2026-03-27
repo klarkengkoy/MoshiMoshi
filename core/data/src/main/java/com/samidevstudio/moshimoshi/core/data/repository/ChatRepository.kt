@@ -1,6 +1,5 @@
 package com.samidevstudio.moshimoshi.core.data.repository
 
-import com.samidevstudio.moshimoshi.core.ai.GeminiService
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -14,9 +13,12 @@ interface ChatRepository {
     val availableModels: List<ModelOption>
     val currentModel: Flow<ModelOption>
     val disabledModels: Flow<Set<String>>
+    val currentLevel: Flow<String>
     
     suspend fun selectModel(modelId: String)
+    suspend fun selectLevel(level: String)
     suspend fun processAudio(file: File): String?
+    suspend fun processText(text: String): String?
     suspend fun resetConversation()
     fun isModelDisabled(modelId: String): Boolean
     suspend fun markModelAsLimited(modelId: String)

@@ -1,5 +1,6 @@
 package com.samidevstudio.moshimoshi.feature.conversation
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -17,21 +18,43 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.io.File
+
+@Serializable
+data class SamiJsonResponse(
+    val user_input: String? = null,
+    val normal: String,
+    val basic: String,
+    val english: String,
+    val suggestion: String
+)
+
+data class ChatMessageItem(
+    val id: Long = System.currentTimeMillis(),
+    val sender: String, // "user" or "sami"
+    val userTranscription: String = "",
+    val normalText: String = "",
+    val basicText: String = "",
+    val englishText: String = "",
+    val suggestionText: String = "",
+    val showBasic: Boolean = false,
+    val showEnglish: Boolean = false
+)
 
 data class ConversationUiState(
     val isRecording: Boolean = false,
     val isProcessing: Boolean = false,
-    val responseText: String = "",
-    val normalText: String = "",
-    val basicText: String = "",
-    val englishText: String = "",
-    val showBasic: Boolean = false,
-    val showEnglish: Boolean = false,
+    val chatHistory: List<ChatMessageItem> = emptyList(),
     val currentModel: ModelOption? = null,
+    val currentLevel: String = "N5",
     val isModelMenuExpanded: Boolean = false,
+    val isLevelMenuExpanded: Boolean = false,
     val disabledModels: Set<String> = emptySet(),
-    val availableModels: List<ModelOption> = emptyList()
+    val availableModels: List<ModelOption> = emptyList(),
+    val availableLevels: List<String> = listOf("N5", "N4", "N3", "N2", "N1"),
+    val inputText: String = ""
 )
 
 class ConversationViewModel(
@@ -39,26 +62,26 @@ class ConversationViewModel(
     private val chatRepository: ChatRepository
 ) : ViewModel() {
     
+    private val json = Json { ignoreUnknownKeys = true }
+    
     private val _uiState = MutableStateFlow(
         ConversationUiState(
-            responseText = savedStateHandle["response_text"] ?: "",
             availableModels = chatRepository.availableModels
         )
     )
     val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
 
     init {
-        val savedText = savedStateHandle.get<String>("response_text")
-        if (!savedText.isNullOrEmpty()) {
-            parseAndSetResponse(savedText)
-        }
-
         chatRepository.currentModel
             .onEach { model -> _uiState.update { it.copy(currentModel = model) } }
             .launchIn(viewModelScope)
 
         chatRepository.disabledModels
             .onEach { disabled -> _uiState.update { it.copy(disabledModels = disabled) } }
+            .launchIn(viewModelScope)
+
+        chatRepository.currentLevel
+            .onEach { level -> _uiState.update { it.copy(currentLevel = level) } }
             .launchIn(viewModelScope)
     }
 
@@ -70,6 +93,10 @@ class ConversationViewModel(
         _uiState.update { it.copy(isModelMenuExpanded = expanded) }
     }
 
+    fun setLevelMenuExpanded(expanded: Boolean) {
+        _uiState.update { it.copy(isLevelMenuExpanded = expanded) }
+    }
+
     fun selectModel(modelId: String) {
         viewModelScope.launch {
             chatRepository.selectModel(modelId)
@@ -77,20 +104,37 @@ class ConversationViewModel(
         }
     }
 
-    private fun parseAndSetResponse(rawText: String) {
-        val normal = rawText.substringAfter("START_NORMAL", "").substringBefore("END_NORMAL", "").trim()
-        val basic = rawText.substringAfter("START_BASIC", "").substringBefore("END_BASIC", "").trim()
-        val english = rawText.substringAfter("START_ENGLISH", "").substringBefore("END_ENGLISH", "").trim()
-        
-        _uiState.update { 
-            it.copy(
-                responseText = rawText,
-                normalText = normal.ifEmpty { rawText },
-                basicText = basic,
-                englishText = english
-            ) 
+    fun selectLevel(level: String) {
+        viewModelScope.launch {
+            chatRepository.selectLevel(level)
+            _uiState.update { it.copy(isLevelMenuExpanded = false) }
         }
-        savedStateHandle["response_text"] = rawText
+    }
+
+    fun onInputTextChange(text: String) {
+        _uiState.update { it.copy(inputText = text) }
+    }
+
+    fun sendTextMessage(ttsManager: TtsManager?) {
+        val text = _uiState.value.inputText.trim()
+        if (text.isEmpty()) return
+
+        val newUserMsg = ChatMessageItem(sender = "user", userTranscription = text)
+        _uiState.update { it.copy(inputText = "", chatHistory = it.chatHistory + newUserMsg, isProcessing = true) }
+        val currentModelId = _uiState.value.currentModel?.id ?: ""
+
+        viewModelScope.launch {
+            try {
+                val result = chatRepository.processText(text)
+                if (result != null) {
+                    handleSamiJsonResponse(result, ttsManager)
+                }
+            } catch (e: Exception) {
+                handleError(e, currentModelId)
+            } finally {
+                _uiState.update { it.copy(isProcessing = false) }
+            }
+        }
     }
 
     fun processAudioResult(file: File, ttsManager: TtsManager?) {
@@ -101,35 +145,97 @@ class ConversationViewModel(
             try {
                 val result = chatRepository.processAudio(file)
                 if (result != null) {
-                    parseAndSetResponse(result)
-                    val ttsText = result.substringAfter("START_NORMAL", "").substringBefore("END_NORMAL", "").trim()
-                    ttsManager?.speak(ttsText.ifEmpty { result })
+                    handleSamiJsonResponse(result, ttsManager)
                 }
             } catch (e: Exception) {
-                val errorMsg = e.localizedMessage ?: ""
-                if (errorMsg.contains("429") || errorMsg.contains("limit", ignoreCase = true)) {
-                    chatRepository.markModelAsLimited(currentModelId)
-                    val nextModel = uiState.value.availableModels.find { !chatRepository.isModelDisabled(it.id) }
-                    if (nextModel != null) {
-                        parseAndSetResponse("START_NORMAL\nLimit reached. I've switched to ${nextModel.name} for you!\nEND_NORMAL")
-                    } else {
-                        parseAndSetResponse("START_NORMAL\nAll models have reached their daily limits. Please try again tomorrow! 🌸\nEND_NORMAL")
-                    }
-                } else {
-                    parseAndSetResponse("Error: $errorMsg")
-                }
+                handleError(e, currentModelId)
             } finally {
                 _uiState.update { it.copy(isProcessing = false) }
             }
         }
     }
 
-    fun toggleBasic() {
-        _uiState.update { it.copy(showBasic = !it.showBasic) }
+    private fun handleSamiJsonResponse(response: String, ttsManager: TtsManager?) {
+        try {
+            // Robust JSON parsing using Kotlin Serialization
+            val samiResponse = json.decodeFromString<SamiJsonResponse>(response)
+            
+            // Use a unique ID for each message to prevent LazyColumn crashes
+            val userMsgId = System.currentTimeMillis()
+            val samiMsgId = userMsgId + 1
+            
+            var currentHistory = uiState.value.chatHistory
+
+            // If user_input is provided (from audio), update the latest user message or add a new one
+            if (!samiResponse.user_input.isNullOrEmpty()) {
+                val lastMsg = currentHistory.lastOrNull()
+                if (lastMsg?.sender == "user" && lastMsg.userTranscription.isEmpty()) {
+                    currentHistory = currentHistory.dropLast(1) + lastMsg.copy(userTranscription = samiResponse.user_input)
+                } else if (lastMsg?.sender != "user") {
+                    currentHistory = currentHistory + ChatMessageItem(
+                        id = userMsgId,
+                        sender = "user", 
+                        userTranscription = samiResponse.user_input
+                    )
+                }
+            }
+
+            val newSamiMsg = ChatMessageItem(
+                id = samiMsgId,
+                sender = "sami",
+                normalText = samiResponse.normal,
+                basicText = samiResponse.basic,
+                englishText = samiResponse.english,
+                suggestionText = samiResponse.suggestion
+            )
+
+            _uiState.update { it.copy(chatHistory = currentHistory + newSamiMsg) }
+            ttsManager?.speak(newSamiMsg.normalText)
+        } catch (e: Exception) {
+            Log.e("ConversationViewModel", "Failed to parse JSON response: $response", e)
+            val errorMsg = ChatMessageItem(
+                id = System.currentTimeMillis(),
+                sender = "sami", 
+                normalText = "Sami had trouble understanding. Please try again! 🌸"
+            )
+            _uiState.update { it.copy(chatHistory = it.chatHistory + errorMsg) }
+        }
     }
 
-    fun toggleEnglish() {
-        _uiState.update { it.copy(showEnglish = !it.showEnglish) }
+    private suspend fun handleError(e: Exception, currentModelId: String) {
+        val errorMsg = e.localizedMessage ?: ""
+        if (errorMsg.contains("429") || errorMsg.contains("limit", ignoreCase = true)) {
+            chatRepository.markModelAsLimited(currentModelId)
+            val nextModel = uiState.value.availableModels.find { !chatRepository.isModelDisabled(it.id) }
+            val message = if (nextModel != null) "Limit reached. Switched to ${nextModel.name}!" else "All limits reached. Try again tomorrow!"
+            _uiState.update { it.copy(chatHistory = it.chatHistory + ChatMessageItem(sender = "sami", normalText = message)) }
+        } else {
+            _uiState.update { it.copy(chatHistory = it.chatHistory + ChatMessageItem(sender = "sami", normalText = "Error: $errorMsg")) }
+        }
+    }
+
+    fun toggleBasic(messageId: Long) {
+        _uiState.update { state ->
+            state.copy(chatHistory = state.chatHistory.map { msg ->
+                if (msg.id == messageId) msg.copy(showBasic = !msg.showBasic) else msg
+            })
+        }
+    }
+
+    fun toggleEnglish(messageId: Long) {
+        _uiState.update { state ->
+            state.copy(chatHistory = state.chatHistory.map { msg ->
+                if (msg.id == messageId) msg.copy(showEnglish = !msg.showEnglish) else msg
+            })
+        }
+    }
+
+    fun useSuggestion() {
+        val lastSamiMsg = uiState.value.chatHistory.lastOrNull { it.sender == "sami" }
+        val suggestion = lastSamiMsg?.suggestionText ?: ""
+        if (suggestion.isNotEmpty()) {
+            onInputTextChange(suggestion)
+        }
     }
 
     fun reset() {
@@ -139,10 +245,10 @@ class ConversationViewModel(
                 ConversationUiState(
                     currentModel = it.currentModel, 
                     disabledModels = it.disabledModels,
-                    availableModels = it.availableModels
+                    availableModels = it.availableModels,
+                    currentLevel = it.currentLevel
                 )
             }
-            savedStateHandle["response_text"] = ""
         }
     }
 
