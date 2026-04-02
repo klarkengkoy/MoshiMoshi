@@ -4,10 +4,16 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +40,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.Subtitles
@@ -288,115 +297,218 @@ fun ConversationScreen(
             }
         }
 
-        // Bottom Controls
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            contentAlignment = Alignment.BottomCenter
         ) {
-            AnimatedVisibility(visible = uiState.isProcessing) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    LoadingIndicator(
-                        modifier = Modifier.size(80.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            AnimatedContent(
+                targetState = when {
+                    uiState.isProcessing -> "processing"
+                    uiState.isReviewingAudio -> "reviewing"
+                    else -> "normal"
+                },
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(220, delayMillis = 90)) + 
+                     scaleIn(initialScale = 0.92f, animationSpec = tween(220, delayMillis = 90)))
+                    .togetherWith(fadeOut(animationSpec = tween(90)))
+                },
+                label = "BottomControlsSwap"
+            ) { state ->
+                when (state) {
+                    "processing" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(112.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            LoadingIndicator(
+                                modifier = Modifier.size(80.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    "reviewing" -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { audioFile?.let { viewModel.toggleAudioPlayback(it) } },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.isAudioPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pause Recording",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(12.dp))
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (uiState.isAudioPlaying) "Playing..." else "Review recording",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = uiState.inputText,
-                    onValueChange = { viewModel.onInputTextChange(it) },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type here...") },
-                    shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    maxLines = 3,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { viewModel.sendTextMessage(ttsManager) }),
-                    trailingIcon = {
-                        if (uiState.inputText.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.sendTextMessage(ttsManager) }) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                IconButton(
+                                    onClick = { viewModel.redoAudio() },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.errorContainer)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Redo Recording",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                IconButton(
+                                    onClick = { audioFile?.let { viewModel.confirmAudioAndSend(it, ttsManager) } },
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Confirm and Send",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(56.dp))
+                        }
+                    }
+                    else -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = uiState.inputText,
+                                    onValueChange = { viewModel.onInputTextChange(it) },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("Type here...") },
+                                    enabled = !uiState.isRecording,
+                                    shape = RoundedCornerShape(28.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        cursorColor = MaterialTheme.colorScheme.primary,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                    ),
+                                    maxLines = 3,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                    keyboardActions = KeyboardActions(onSend = { viewModel.sendTextMessage(ttsManager) })
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                val lastSuggestion = uiState.chatHistory.lastOrNull { it.sender == "sami" }?.suggestionText ?: ""
+                                IconButton(
+                                    onClick = { viewModel.useSuggestion() },
+                                    enabled = lastSuggestion.isNotEmpty() && !uiState.isRecording,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(if (lastSuggestion.isNotEmpty() && !uiState.isRecording) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lightbulb,
+                                        contentDescription = "Use Suggestion",
+                                        tint = if (lastSuggestion.isNotEmpty() && !uiState.isRecording) MaterialTheme.colorScheme.primary else Color.LightGray
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                val isSendMode = uiState.inputText.isNotEmpty()
+
+                                IconButton(
+                                    onClick = {
+                                        if (isSendMode) {
+                                            viewModel.sendTextMessage(ttsManager)
+                                        } else {
+                                            if (uiState.isRecording) {
+                                                recorder.stop()
+                                                viewModel.stopRecording()
+                                            } else {
+                                                if (hasPermission) {
+                                                    val file = File(context.cacheDir, "audio.mp4")
+                                                    audioFile = file
+                                                    recorder.start(file)
+                                                    viewModel.setRecording(true)
+                                                } else {
+                                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .scale(if (uiState.isRecording && !isSendMode) scale else 1f)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (uiState.isRecording && !isSendMode) Color(0xFFFF5252) 
+                                            else MaterialTheme.colorScheme.primary
+                                        )
+                                ) {
+                                    Icon(
+                                        imageVector = when {
+                                            isSendMode -> Icons.AutoMirrored.Filled.Send
+                                            uiState.isRecording -> Icons.Default.Stop
+                                            else -> Icons.Default.Mic
+                                        },
+                                        contentDescription = if (isSendMode) "Send" else "Toggle Recording",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+
+                            if (!uiState.isRecording && uiState.chatHistory.isNotEmpty()) {
+                                TextButton(onClick = { viewModel.reset() }) {
+                                    Text("Reset Conversation", color = MaterialTheme.colorScheme.primary)
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.height(48.dp))
                             }
                         }
                     }
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                val lastSuggestion = uiState.chatHistory.lastOrNull { it.sender == "sami" }?.suggestionText ?: ""
-                IconButton(
-                    onClick = { viewModel.useSuggestion() },
-                    enabled = lastSuggestion.isNotEmpty(),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(if (lastSuggestion.isNotEmpty()) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lightbulb,
-                        contentDescription = "Use Suggestion",
-                        tint = if (lastSuggestion.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.LightGray
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = {
-                        if (uiState.isRecording) {
-                            recorder.stop()
-                            viewModel.setRecording(false)
-                            audioFile?.let { file ->
-                                viewModel.processAudioResult(file, ttsManager)
-                            }
-                        } else {
-                            if (hasPermission) {
-                                val file = File(context.cacheDir, "audio.mp4")
-                                audioFile = file
-                                recorder.start(file)
-                                viewModel.setRecording(true)
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .scale(if (uiState.isRecording) scale else 1f)
-                        .clip(CircleShape)
-                        .background(
-                            if (uiState.isRecording) Color(0xFFFF5252) 
-                            else MaterialTheme.colorScheme.primary
-                        )
-                ) {
-                    Icon(
-                        imageVector = if (uiState.isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                        contentDescription = "Toggle Recording",
-                        tint = Color.White
-                    )
-                }
-            }
-
-            if (!uiState.isRecording && uiState.chatHistory.isNotEmpty()) {
-                TextButton(onClick = { viewModel.reset() }) {
-                    Text("Reset Conversation", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

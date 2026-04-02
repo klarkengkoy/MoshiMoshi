@@ -19,9 +19,9 @@ class ChatRepositoryImpl(
     private val prefs = context.getSharedPreferences("model_limits", Context.MODE_PRIVATE)
 
     override val availableModels = listOf(
-        ModelOption("Gemini 1.5 Flash Lite", "gemini-1.5-flash-lite-preview", 500),
-        ModelOption("Gemini 1.5 Flash", "gemini-1.5-flash-preview", 20),
-        ModelOption("Gemini 1.0 Pro", "gemini-1.0-pro", 20)
+        ModelOption("Gemini 3.1 Flash Lite", "gemini-3.1-flash-lite-preview", 500),
+        ModelOption("Gemini 2.5 Flash", "gemini-2.5-flash", 20),
+        ModelOption("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite", 20)
     )
 
     private val _currentModel = MutableStateFlow(availableModels[0])

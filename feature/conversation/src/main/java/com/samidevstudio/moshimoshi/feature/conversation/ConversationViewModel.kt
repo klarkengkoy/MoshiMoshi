@@ -1,6 +1,6 @@
 package com.samidevstudio.moshimoshi.feature.conversation
 
-import android.util.Log
+import android.media.MediaPlayer
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -31,9 +31,10 @@ data class SamiJsonResponse(
     val suggestion: String
 )
 
+@Serializable
 data class ChatMessageItem(
     val id: Long = System.currentTimeMillis(),
-    val sender: String, // "user" or "sami"
+    val sender: String,
     val userTranscription: String = "",
     val normalText: String = "",
     val basicText: String = "",
@@ -45,6 +46,8 @@ data class ChatMessageItem(
 
 data class ConversationUiState(
     val isRecording: Boolean = false,
+    val isReviewingAudio: Boolean = false,
+    val isAudioPlaying: Boolean = false,
     val isProcessing: Boolean = false,
     val chatHistory: List<ChatMessageItem> = emptyList(),
     val currentModel: ModelOption? = null,
@@ -63,6 +66,7 @@ class ConversationViewModel(
 ) : ViewModel() {
     
     private val json = Json { ignoreUnknownKeys = true }
+    private var mediaPlayer: MediaPlayer? = null
     
     private val _uiState = MutableStateFlow(
         ConversationUiState(
@@ -87,6 +91,52 @@ class ConversationViewModel(
 
     fun setRecording(isRecording: Boolean) {
         _uiState.update { it.copy(isRecording = isRecording) }
+    }
+
+    fun stopRecording() {
+        _uiState.update { it.copy(isRecording = false, isReviewingAudio = true) }
+    }
+
+    fun redoAudio() {
+        stopAudioPlayback()
+        _uiState.update { it.copy(isReviewingAudio = false, isAudioPlaying = false) }
+    }
+
+    fun toggleAudioPlayback(file: File) {
+        if (_uiState.value.isAudioPlaying) {
+            stopAudioPlayback()
+        } else {
+            startAudioPlayback(file)
+        }
+    }
+
+    private fun startAudioPlayback(file: File) {
+        viewModelScope.launch {
+            try {
+                stopAudioPlayback()
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(file.absolutePath)
+                    prepare()
+                    start()
+                    setOnCompletionListener {
+                        _uiState.update { it.copy(isAudioPlaying = false) }
+                        stopAudioPlayback()
+                    }
+                }
+                _uiState.update { it.copy(isAudioPlaying = true) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isAudioPlaying = false) }
+            }
+        }
+    }
+
+    private fun stopAudioPlayback() {
+        mediaPlayer?.apply {
+            if (isPlaying) stop()
+            release()
+        }
+        mediaPlayer = null
+        _uiState.update { it.copy(isAudioPlaying = false) }
     }
 
     fun setModelMenuExpanded(expanded: Boolean) {
@@ -137,8 +187,9 @@ class ConversationViewModel(
         }
     }
 
-    fun processAudioResult(file: File, ttsManager: TtsManager?) {
-        _uiState.update { it.copy(isProcessing = true) }
+    fun confirmAudioAndSend(file: File, ttsManager: TtsManager?) {
+        stopAudioPlayback()
+        _uiState.update { it.copy(isReviewingAudio = false, isProcessing = true) }
         val currentModelId = _uiState.value.currentModel?.id ?: ""
         
         viewModelScope.launch {
@@ -157,16 +208,13 @@ class ConversationViewModel(
 
     private fun handleSamiJsonResponse(response: String, ttsManager: TtsManager?) {
         try {
-            // Robust JSON parsing using Kotlin Serialization
             val samiResponse = json.decodeFromString<SamiJsonResponse>(response)
             
-            // Use a unique ID for each message to prevent LazyColumn crashes
             val userMsgId = System.currentTimeMillis()
             val samiMsgId = userMsgId + 1
             
             var currentHistory = uiState.value.chatHistory
 
-            // If user_input is provided (from audio), update the latest user message or add a new one
             if (!samiResponse.user_input.isNullOrEmpty()) {
                 val lastMsg = currentHistory.lastOrNull()
                 if (lastMsg?.sender == "user" && lastMsg.userTranscription.isEmpty()) {
@@ -192,7 +240,6 @@ class ConversationViewModel(
             _uiState.update { it.copy(chatHistory = currentHistory + newSamiMsg) }
             ttsManager?.speak(newSamiMsg.normalText)
         } catch (e: Exception) {
-            Log.e("ConversationViewModel", "Failed to parse JSON response: $response", e)
             val errorMsg = ChatMessageItem(
                 id = System.currentTimeMillis(),
                 sender = "sami", 
@@ -204,6 +251,7 @@ class ConversationViewModel(
 
     private suspend fun handleError(e: Exception, currentModelId: String) {
         val errorMsg = e.localizedMessage ?: ""
+
         if (errorMsg.contains("429") || errorMsg.contains("limit", ignoreCase = true)) {
             chatRepository.markModelAsLimited(currentModelId)
             val nextModel = uiState.value.availableModels.find { !chatRepository.isModelDisabled(it.id) }
@@ -250,6 +298,11 @@ class ConversationViewModel(
                 )
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopAudioPlayback()
     }
 
     companion object {
